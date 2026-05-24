@@ -33,48 +33,70 @@ LISTEN_ADDR=:9090 ./mirror-proxy
 
 ## Docker 部署
 
-### 使用 Docker 直接运行
+### 使用 Docker Compose（推荐）
+
+无需克隆仓库，一条命令即可完成部署。
+
+**1. 创建 `docker-compose.yml`**
 
 ```bash
-# 构建镜像
-docker build -t mirror-proxy .
-
-# 运行容器（首次运行会自动创建 config.json）
-docker run -d \
-  --name mirror-proxy \
-  -p 8080:8080 \
-  -v $(pwd)/config.json:/app/config.json \
-  -v $(pwd)/cache:/app/cache \
-  --restart unless-stopped \
-  mirror-proxy
+cat > docker-compose.yml << 'EOF'
+services:
+  mirror-proxy:
+    image: ghcr.io/arkylin/mirror-proxy:latest
+    container_name: mirror-proxy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.json:/app/config.json
+      - ./cache:/app/cache
+    environment:
+      - TZ=Asia/Shanghai
+EOF
 ```
 
-### 使用 Docker Compose
+**2. 启动服务**
 
 ```bash
-# 启动服务
 docker-compose up -d
+```
 
+首次启动会自动创建 `config.json`（默认账号 `admin` / `admin123`）。
+
+**3. 常用命令**
+
+```bash
 # 查看日志
 docker-compose logs -f
 
+# 查看运行状态
+docker-compose ps
+
 # 停止服务
 docker-compose down
+
+# 重启服务
+docker-compose restart
+
+# 更新到最新镜像
+docker-compose pull && docker-compose up -d
 ```
 
-`docker-compose.yml` 已包含端口映射和卷挂载：
-- `./config.json:/app/config.json` — 配置文件持久化
-- `./cache:/app/cache` — 缓存目录持久化
+**4. 管理后台**
 
-### 使用 GHCR 镜像（免构建）
+访问 `http://<服务器IP>:8080/admin/`，默认账号：
+- 用户名：`admin`
+- 密码：`admin123`
 
-每次 push 到 `main` 分支或打 `v*` 标签时，会自动构建并推送镜像到 GHCR。
+> 建议首次登录后立即在 **系统设置** 中修改密码。
+
+---
+
+### 使用 Docker 直接运行
 
 ```bash
-# 拉取最新镜像
-docker pull ghcr.io/arkylin/mirror-proxy:latest
-
-# 运行
+# 拉取并运行（首次运行自动生成 config.json）
 docker run -d \
   --name mirror-proxy \
   -p 8080:8080 \
@@ -82,6 +104,18 @@ docker run -d \
   -v $(pwd)/cache:/app/cache \
   --restart unless-stopped \
   ghcr.io/arkylin/mirror-proxy:latest
+```
+
+---
+
+### 自行构建镜像
+
+如需本地构建：
+
+```bash
+# 克隆仓库后执行
+docker build -t mirror-proxy .
+docker run -d --name mirror-proxy -p 8080:8080 mirror-proxy
 ```
 
 ## 使用方式
