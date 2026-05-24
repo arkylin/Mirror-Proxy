@@ -190,7 +190,7 @@ func buildHandler(cfg *config.Config) (*admin.Handler, http.Handler) {
 	// 根路径处理
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			http.Redirect(w, r, adminPath+"/", http.StatusFound)
+			http.NotFound(w, r)
 			return
 		}
 		authProxy.ServeHTTP(w, r)
