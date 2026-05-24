@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -14,10 +15,6 @@ import (
 	"mirror-proxy/internal/config"
 	"mirror-proxy/internal/middleware"
 	"mirror-proxy/internal/proxy"
-)
-
-import (
-	"net/url"
 )
 
 // extractTargetURL 从请求路径中提取目标 URL
@@ -163,11 +160,15 @@ func buildHandler(cfg *config.Config) (*admin.Handler, http.Handler) {
 			return
 		}
 
+		log.Printf("[DEBUG] auth handler path=%s linkType=%s", r.URL.Path, link.Type)
+
 		// URL 代理模式: /https://target.com/path 或 /target.com/path
 		if targetURL, isURL := extractTargetURL(r); isURL {
+			log.Printf("[DEBUG] extractTargetURL matched, targetURL=%s", targetURL)
 			proxy.DynamicProxy(targetURL).ServeHTTP(w, r)
 			return
 		}
+		log.Printf("[DEBUG] extractTargetURL did NOT match, falling through to link.Type switch")
 
 		switch link.Type {
 		case "docker":

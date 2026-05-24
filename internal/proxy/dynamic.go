@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -28,6 +29,7 @@ func DynamicProxy(targetURL string) http.Handler {
 
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
+			log.Printf("[DEBUG] DynamicProxy Director: method=%s url=%s host=%s", req.Method, req.URL.String(), req.Host)
 			req.Host = target.Host
 			req.Header.Set("Host", target.Host)
 			// 删除 Accept-Encoding，防止响应被压缩，便于修改 HTML
@@ -40,6 +42,8 @@ func DynamicProxy(targetURL string) http.Handler {
 		ModifyResponse: func(resp *http.Response) error {
 			// 删除上游返回的 HSTS / CSP header，防止浏览器将代理域名标记为
 			// HTTPS-only 或自动升级 HTTP URL。
+			log.Printf("[DEBUG] DynamicProxy ModifyResponse: status=%d upstream=%s", resp.StatusCode, resp.Request.URL.String())
+
 			resp.Header.Del("Strict-Transport-Security")
 			resp.Header.Del("Content-Security-Policy")
 
