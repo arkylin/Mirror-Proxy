@@ -1,0 +1,30 @@
+# Binaries
+mirror-proxy
+main
+*.exe
+
+# Build artifacts
+*.o
+*.a
+
+# Cache & runtime data
+cache/
+/cache
+*.log
+
+# Config (contains sensitive data, auto-generated at runtime)
+config.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/

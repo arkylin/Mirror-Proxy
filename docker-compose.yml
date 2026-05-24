@@ -1,0 +1,12 @@
+services:
+  mirror-proxy:
+    build: .
+    container_name: mirror-proxy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.json:/app/config.json
+      - ./cache:/app/cache
+    environment:
+      - TZ=Asia/Shanghai

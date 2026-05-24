@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirror Proxy - 镜像代理管理后台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        header {
+            background: #1a1a2e;
+            color: white;
+            padding: 20px 0;
+            margin-bottom: 30px;
+        }
+        header h1 { font-size: 24px; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #1a1a2e;
+        }
+        .section {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .section h2 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #eee;
+        }
+        .btn {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover { background: #c82333; }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover { background: #218838; }
+        .btn-sm {
+            padding: 4px 12px;
+            font-size: 12px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            font-weight: 600;
+            color: #666;
+            font-size: 13px;
+            text-transform: uppercase;
+        }
+        tr:hover { background: #f8f9fa; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+        .badge-info { background: #d1ecf1; color: #0c5460; }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            width: 90%;
+            max-width: 500px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .token-display {
+            font-family: monospace;
+            font-size: 12px;
+            background: #f8f9fa;
+            padding: 4px 8px;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+        .url-display {
+            font-family: monospace;
+            font-size: 11px;
+            color: #007bff;
+            word-break: break-all;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .copy-btn {
+            background: none;
+            border: 1px solid #ddd;
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            margin-left: 5px;
+        }
+        .copy-btn:hover { background: #f0f0f0; }
+        .actions { display: flex; gap: 5px; }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            background: #28a745;
+            color: white;
+            border-radius: 4px;
+            z-index: 2000;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .info-box {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+        .info-box code {
+            background: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container" style="display:flex;justify-content:space-between;align-items:center;">
+            <h1>Mirror Proxy - 镜像代理管理后台</h1>
+            <button class="btn btn-primary" onclick="openSettingsModal()">⚙️ 系统设置</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="stats">
+            <div class="stat-card">
+                <h3>总链接数</h3>
+                <div class="value" id="totalLinks">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>活跃链接</h3>
+                <div class="value" id="activeLinks">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>服务状态</h3>
+                <div class="value" style="color: #28a745;">运行中</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>链接管理</h2>
+            <div style="margin-bottom: 15px;">
+                <button class="btn btn-primary" onclick="openModal()">+ 创建新链接</button>
+            </div>
+            <div id="linksTable">
+                <div class="empty-state">
+                    <h3>暂无链接</h3>
+                    <p>点击上方按钮创建第一个代理链接</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>使用说明</h2>
+            <div class="info-box">
+                <p><strong>Docker Hub 代理（推荐 daemon.json 方式）：</strong></p>
+                <p>1. 创建类型为 <code>docker</code> 的链接</p>
+                <p>2. 编辑 <code>/etc/docker/daemon.json</code>：</p>
+                <pre style="background:#fff;padding:10px;border-radius:4px;margin:8px 0;overflow:auto;">{
+  "registry-mirrors": ["https://yourdomain.com/{linkID}/{token}/"]
+}</pre>
+                <p>3. 重启 Docker：<code>systemctl restart docker</code></p>
+                <p>4. 之后 <code>docker pull nginx</code> 自动走代理</p>
+                <br>
+                <p><strong>GHCR 代理：</strong></p>
+                <p>1. 创建类型为 <code>ghcr</code> 的链接</p>
+                <p>2. daemon.json 配置：<code>"registry-mirrors": ["https://yourdomain.com/{linkID}/{token}/"]</code></p>
+                <p>3. <code>docker pull ghcr.io/owner/repo</code> 自动走代理</p>
+                <br>
+                <p><strong>GitHub 代理：</strong></p>
+                <p>1. 创建类型为 <code>github</code> 的链接</p>
+                <p>2. <code>curl -O https://yourdomain.com/{linkID}/{token}/github.com/user/repo/releases/...</code></p>
+                <br>
+                <p><strong>鉴权模式说明：</strong></p>
+                <p>• <strong>双重鉴权</strong>：路径为 <code>/{linkID}/{token}/</code>，ID 用于标识，Token 用于验证</p>
+                <p>• <strong>仅 Token</strong>：路径为 <code>/{token}/</code>，更简洁，适合个人使用</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建链接模态框 -->
+    <div class="modal" id="createModal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 20px;">创建新链接</h2>
+            <div class="form-group">
+                <label>链接名称</label>
+                <input type="text" id="linkName" placeholder="例如：Docker Hub 代理">
+            </div>
+            <div class="form-group">
+                <label>代理类型</label>
+                <select id="linkType">
+                    <option value="docker">Docker Hub</option>
+                    <option value="ghcr">GHCR (GitHub Container Registry)</option>
+                    <option value="github">GitHub 资源</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>鉴权模式</label>
+                <select id="linkAuthMode">
+                    <option value="dual">双重鉴权 (ID + Token)</option>
+                    <option value="single">仅 Token 鉴权</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>速率限制 (请求/分钟)</label>
+                <input type="number" id="linkRateLimit" value="100" min="1">
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeModal()" style="background: #6c757d; color: white;">取消</button>
+                <button class="btn btn-primary" onclick="createLink()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 链接详情模态框 -->
+    <div class="modal" id="detailModal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 20px;">链接详情</h2>
+            <div id="detailContent"></div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeDetailModal()" style="background: #6c757d; color: white;">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 系统设置模态框 -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 20px;">系统设置</h2>
+            <div class="form-group">
+                <label>监听地址</label>
+                <input type="text" id="cfgListenAddr" placeholder=":8080">
+            </div>
+            <div class="form-group">
+                <label>管理后台路径</label>
+                <input type="text" id="cfgAdminPath" placeholder="/admin">
+            </div>
+            <div class="form-group">
+                <label>管理员用户名</label>
+                <input type="text" id="cfgAdminUser" placeholder="admin">
+            </div>
+            <div class="form-group">
+                <label>管理员密码（留空表示不修改）</label>
+                <input type="password" id="cfgAdminPass" placeholder="不修改请留空">
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeSettingsModal()" style="background: #6c757d; color: white;">取消</button>
+                <button class="btn btn-primary" onclick="saveConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let links = [];
+        let currentConfig = {};
+
+        async function loadLinks() {
+            try {
+                const res = await fetch('/api/links');
+                links = await res.json();
+                renderLinks();
+                updateStats();
+            } catch (e) {
+                console.error('加载链接失败:', e);
+            }
+        }
+
+        function renderLinks() {
+            const container = document.getElementById('linksTable');
+            if (links.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>暂无链接</h3>
+                        <p>点击上方按钮创建第一个代理链接</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const host = window.location.host;
+            container.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>名称</th>
+                            <th>ID</th>
+                            <th>类型</th>
+                            <th>鉴权</th>
+                            <th>状态</th>
+                            <th>代理URL</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${links.map(link => {
+                            const authMode = link.auth_mode || 'dual';
+                            const proxyUrl = authMode === 'single'
+                                ? `${host}/${link.token}/`
+                                : `${host}/${link.id}/${link.token}/`;
+                            return `
+                                <tr>
+                                    <td>${link.name || '未命名'}</td>
+                                    <td><code>${link.id}</code></td>
+                                    <td><span class="badge badge-info">${link.type.toUpperCase()}</span></td>
+                                    <td><span class="badge badge-info">${authMode === 'single' ? '仅Token' : '双重'}</span></td>
+                                    <td>
+                                        ${link.enabled
+                                            ? '<span class="badge badge-success">启用</span>'
+                                            : '<span class="badge badge-danger">禁用</span>'
+                                        }
+                                    </td>
+                                    <td class="url-display">${proxyUrl}</td>
+                                    <td class="actions">
+                                        <button class="btn btn-sm btn-success" onclick="copyUrl('${proxyUrl}')">复制</button>
+                                        <button class="btn btn-sm" onclick="toggleLink('${link.id}', ${!link.enabled})" style="background: #6c757d; color: white;">
+                                            ${link.enabled ? '禁用' : '启用'}
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteLink('${link.id}')">删除</button>
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function updateStats() {
+            document.getElementById('totalLinks').textContent = links.length;
+            document.getElementById('activeLinks').textContent = links.filter(l => l.enabled).length;
+        }
+
+        function openModal() {
+            document.getElementById('createModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('createModal').classList.remove('active');
+            document.getElementById('linkName').value = '';
+            document.getElementById('linkType').value = 'docker';
+            document.getElementById('linkAuthMode').value = 'dual';
+            document.getElementById('linkRateLimit').value = '100';
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detailModal').classList.remove('active');
+        }
+
+        async function createLink() {
+            const name = document.getElementById('linkName').value.trim();
+            const type = document.getElementById('linkType').value;
+            const authMode = document.getElementById('linkAuthMode').value;
+            const rateLimit = parseInt(document.getElementById('linkRateLimit').value) || 100;
+
+            if (!name) {
+                showToast('请输入链接名称', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/links', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, type, auth_mode: authMode, rate_limit: rateLimit })
+                });
+
+                if (res.ok) {
+                    const link = await res.json();
+                    showToast('链接创建成功');
+                    closeModal();
+                    loadLinks();
+                    // 显示详情
+                    showLinkDetail(link);
+                } else {
+                    showToast('创建失败', 'error');
+                }
+            } catch (e) {
+                showToast('创建失败: ' + e.message, 'error');
+            }
+        }
+
+        function showLinkDetail(link) {
+            const host = window.location.host;
+            const authMode = link.auth_mode || 'dual';
+            const proxyUrl = authMode === 'single'
+                ? `${host}/${link.token}/`
+                : `${host}/${link.id}/${link.token}/`;
+
+            let usage = '';
+            if (link.type === 'docker') {
+                usage = `
+                    <p><strong> Docker 使用方式：</strong></p>
+                    <p>1. 直接拉取：<code>docker pull ${proxyUrl}library/nginx</code></p>
+                    <p>2. 配置镜像加速器（daemon.json）：</p>
+                    <pre style="background:#f5f5f5;padding:10px;border-radius:4px;overflow:auto;">{
+  "registry-mirrors": ["https://${proxyUrl}"]
+}</pre>
+                `;
+            } else if (link.type === 'ghcr') {
+                usage = `
+                    <p><strong> GHCR 使用方式：</strong></p>
+                    <p>1. 配置 daemon.json：</p>
+                    <pre style="background:#f5f5f5;padding:10px;border-radius:4px;overflow:auto;">{
+  "registry-mirrors": ["https://${proxyUrl}"]
+}</pre>
+                    <p>2. 之后 <code>docker pull ghcr.io/owner/repo:tag</code> 自动走代理</p>
+                `;
+            } else {
+                usage = `
+                    <p><strong> GitHub 使用方式：</strong></p>
+                    <p><code>curl https://${proxyUrl}github.com/user/repo/releases/download/...</code></p>
+                `;
+            }
+
+            document.getElementById('detailContent').innerHTML = `
+                <div class="form-group">
+                    <label>链接ID</label>
+                    <div class="token-display">${link.id}</div>
+                </div>
+                <div class="form-group">
+                    <label>访问Token</label>
+                    <div class="token-display">${link.token} <button class="copy-btn" onclick="copyText('${link.token}')">复制</button></div>
+                </div>
+                <div class="form-group">
+                    <label>代理地址</label>
+                    <div class="token-display">${proxyUrl} <button class="copy-btn" onclick="copyText('${proxyUrl}')">复制</button></div>
+                </div>
+                <div class="form-group">
+                    <label>使用方式</label>
+                    <div>${usage}</div>
+                </div>
+            `;
+            document.getElementById('detailModal').classList.add('active');
+        }
+
+        async function toggleLink(id, enabled) {
+            try {
+                const res = await fetch(`/api/links/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled })
+                });
+
+                if (res.ok) {
+                    showToast(enabled ? '链接已启用' : '链接已禁用');
+                    loadLinks();
+                } else {
+                    showToast('操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('操作失败: ' + e.message, 'error');
+            }
+        }
+
+        async function deleteLink(id) {
+            if (!confirm('确定要删除此链接吗？此操作不可恢复。')) return;
+
+            try {
+                const res = await fetch(`/api/links/${id}`, { method: 'DELETE' });
+                if (res.ok) {
+                    showToast('链接已删除');
+                    loadLinks();
+                } else {
+                    showToast('删除失败', 'error');
+                }
+            } catch (e) {
+                showToast('删除失败: ' + e.message, 'error');
+            }
+        }
+
+        async function regenerateToken(id) {
+            try {
+                const res = await fetch(`/api/links/${id}/token`, { method: 'POST' });
+                if (res.ok) {
+                    const data = await res.json();
+                    showToast('Token已重新生成');
+                    loadLinks();
+                }
+            } catch (e) {
+                showToast('操作失败', 'error');
+            }
+        }
+
+        function copyUrl(url) {
+            copyText(url);
+        }
+
+        function copyText(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('已复制到剪贴板');
+            });
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.background = type === 'error' ? '#dc3545' : '#28a745';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        async function loadConfig() {
+            try {
+                const res = await fetch('/api/config');
+                currentConfig = await res.json();
+            } catch (e) {
+                console.error('加载配置失败:', e);
+            }
+        }
+
+        function openSettingsModal() {
+            document.getElementById('cfgListenAddr').value = currentConfig.listen_addr || ':8080';
+            document.getElementById('cfgAdminPath').value = currentConfig.admin_path || '/admin';
+            document.getElementById('cfgAdminUser').value = currentConfig.admin_user || 'admin';
+            document.getElementById('cfgAdminPass').value = '';
+            document.getElementById('settingsModal').classList.add('active');
+        }
+
+        function closeSettingsModal() {
+            document.getElementById('settingsModal').classList.remove('active');
+        }
+
+        async function saveConfig() {
+            const listenAddr = document.getElementById('cfgListenAddr').value.trim();
+            const adminPath = document.getElementById('cfgAdminPath').value.trim();
+            const adminUser = document.getElementById('cfgAdminUser').value.trim();
+            const adminPass = document.getElementById('cfgAdminPass').value;
+
+            if (!listenAddr || !adminPath || !adminUser) {
+                showToast('请填写完整信息', 'error');
+                return;
+            }
+
+            try {
+                const body = { listen_addr: listenAddr, admin_path: adminPath, admin_user: adminUser };
+                if (adminPass) body.admin_pass = adminPass;
+
+                const res = await fetch('/api/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    currentConfig = data;
+                    showToast('保存成功');
+                    closeSettingsModal();
+                    if (data.restart_required) {
+                        setTimeout(() => {
+                            alert('配置已保存，由于修改了监听地址或管理后台路径，需要重启服务才能生效。');
+                        }, 300);
+                    }
+                } else {
+                    showToast('保存失败', 'error');
+                }
+            } catch (e) {
+                showToast('保存失败: ' + e.message, 'error');
+            }
+        }
+
+        // 点击模态框外部关闭
+        document.querySelectorAll('.modal').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.remove('active');
+                }
+            });
+        });
+
+        // 加载数据
+        loadConfig();
+        loadLinks();
+    </script>
+</body>
+</html>
