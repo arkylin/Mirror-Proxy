@@ -11,7 +11,7 @@ import (
 // so they include the token prefix.  This is needed because many sites (e.g.
 // GitHub) use Content-Security-Policy that blocks inline scripts, making the
 // JS-injection approach unreliable.
-func rewriteHTMLBody(body []byte, prefix string) []byte {
+func rewriteHTMLBody(body []byte, prefix string, host string, proto string) []byte {
 	if prefix == "" {
 		return body
 	}
@@ -21,7 +21,7 @@ func rewriteHTMLBody(body []byte, prefix string) []byte {
 		return body
 	}
 
-	rewriteNode(doc, prefix)
+	rewriteNode(doc, prefix, host, proto)
 
 	var buf bytes.Buffer
 	if err := html.Render(&buf, doc); err != nil {
@@ -45,12 +45,20 @@ var urlAttrs = []string{
 	"data-href",
 }
 
-func rewriteNode(n *html.Node, prefix string) {
+func rewriteNode(n *html.Node, prefix string, host string, proto string) {
 	if n.Type == html.ElementNode {
 		for i := range n.Attr {
 			attr := &n.Attr[i]
 			if isURLAttr(attr.Key) {
 				attr.Val = rewriteURL(attr.Val, prefix)
+				// 将 href 的相对路径显式写成绝对路径，避免浏览器根据当前
+				// 页面协议猜测（防止 http 页面中的链接被解析成 https）。
+				if host != "" && proto != "" &&
+					strings.EqualFold(attr.Key, "href") &&
+					strings.HasPrefix(attr.Val, "/") &&
+					!strings.HasPrefix(attr.Val, "//") {
+					attr.Val = proto + "://" + host + attr.Val
+				}
 				continue
 			}
 			// <meta http-equiv="refresh" content="0;url=/path">
@@ -69,7 +77,7 @@ func rewriteNode(n *html.Node, prefix string) {
 	}
 
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		rewriteNode(c, prefix)
+		rewriteNode(c, prefix, host, proto)
 	}
 }
 

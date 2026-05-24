@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,12 +14,52 @@ import (
 	"mirror-proxy/internal/auth"
 )
 
+// context keys for preserving original request info through the proxy
+type proxyHostKey string
+const proxyHostCtxKey proxyHostKey = "proxyHost"
+
+type proxyProtoKey string
+const proxyProtoCtxKey proxyProtoKey = "proxyProto"
+
+// saveProxyContext saves the original request host and protocol into the
+// request context before Director mutates req.Host / req.URL.
+func saveProxyContext(req *http.Request) {
+	host := req.Host
+	proto := "http"
+	if req.TLS != nil {
+		proto = "https"
+	}
+	if fp := req.Header.Get("X-Forwarded-Proto"); fp != "" {
+		proto = fp
+	}
+	ctx := context.WithValue(req.Context(), proxyHostCtxKey, host)
+	ctx = context.WithValue(ctx, proxyProtoCtxKey, proto)
+	*req = *req.WithContext(ctx)
+}
+
+// loadProxyInfo reads the original host/protocol back from the outbound
+// request's context (injected by saveProxyContext in Director).
+func loadProxyInfo(req *http.Request) (host, proto string) {
+	if req == nil {
+		return "", "http"
+	}
+	if h, ok := req.Context().Value(proxyHostCtxKey).(string); ok {
+		host = h
+	}
+	if p, ok := req.Context().Value(proxyProtoCtxKey).(string); ok {
+		proto = p
+	}
+	return
+}
+
 // NewGitHubProxy 创建 GitHub 主站反向代理
 func NewGitHubProxy() http.Handler {
 	target, _ := url.Parse("https://github.com")
 
 	p := httputil.NewSingleHostReverseProxy(target)
 	p.Director = func(req *http.Request) {
+		saveProxyContext(req)
+
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
 		req.Host = target.Host
@@ -40,9 +81,16 @@ func NewGitHubProxy() http.Handler {
 			}
 		}
 
+		// 删除上游返回的 HSTS / CSP header，防止浏览器将代理域名标记为
+		// HTTPS-only 或自动升级 HTTP URL。
+		resp.Header.Del("Strict-Transport-Security")
+		resp.Header.Del("Content-Security-Policy")
+
 		if tokenPrefix == "" {
 			return nil
 		}
+
+		host, proto := loadProxyInfo(resp.Request)
 
 		// 重写 Location header
 		if loc := resp.Header.Get("Location"); loc != "" {
@@ -59,7 +107,7 @@ func NewGitHubProxy() http.Handler {
 			resp.Body.Close()
 
 			// 1. 服务端重写所有已知 URL 属性（应对 CSP 禁止内联脚本的情况）
-			body = rewriteHTMLBody(body, tokenPrefix)
+			body = rewriteHTMLBody(body, tokenPrefix, host, proto)
 			// 2. 注入 JS 处理动态添加的内容（无 CSP 时生效）
 			body = injectTokenPrefixScript(body, tokenPrefix)
 

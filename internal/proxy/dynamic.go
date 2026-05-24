@@ -24,6 +24,8 @@ func DynamicProxy(targetURL string) http.Handler {
 
 	p := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
+			saveProxyContext(req)
+
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
 			req.Host = target.Host
@@ -36,6 +38,11 @@ func DynamicProxy(targetURL string) http.Handler {
 			req.Header.Del("X-Forwarded-For")
 		},
 		ModifyResponse: func(resp *http.Response) error {
+			// 删除上游返回的 HSTS / CSP header，防止浏览器将代理域名标记为
+			// HTTPS-only 或自动升级 HTTP URL。
+			resp.Header.Del("Strict-Transport-Security")
+			resp.Header.Del("Content-Security-Policy")
+
 			// 从请求上下文中获取 token 前缀
 			tokenPrefix := ""
 			if resp.Request != nil {
@@ -47,6 +54,8 @@ func DynamicProxy(targetURL string) http.Handler {
 			if tokenPrefix == "" {
 				return nil
 			}
+
+			host, proto := loadProxyInfo(resp.Request)
 
 			// 重写 Location header
 			if loc := resp.Header.Get("Location"); loc != "" {
@@ -63,7 +72,7 @@ func DynamicProxy(targetURL string) http.Handler {
 				resp.Body.Close()
 
 				// 1. 服务端重写所有已知 URL 属性（应对 CSP 禁止内联脚本的情况）
-				body = rewriteHTMLBody(body, tokenPrefix)
+				body = rewriteHTMLBody(body, tokenPrefix, host, proto)
 				// 2. 注入 JS 处理动态添加的内容（无 CSP 时生效）
 				body = injectTokenPrefixScript(body, tokenPrefix)
 
