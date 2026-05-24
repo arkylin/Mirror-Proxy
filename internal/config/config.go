@@ -39,6 +39,7 @@ type Link struct {
 	AuthMode    string   `json:"auth_mode"` // single, dual
 	Enabled     bool     `json:"enabled"`
 	RateLimit   int      `json:"rate_limit"` // requests per minute
+	AllowedIPs  []string `json:"allowed_ips"` // empty = allow all
 	CreatedAt   int64    `json:"created_at"`
 	AccessCount int64    `json:"access_count"`
 	LastAccess  int64    `json:"last_access"`

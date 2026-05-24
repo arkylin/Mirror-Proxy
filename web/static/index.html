@@ -312,10 +312,10 @@
         </div>
     </div>
 
-    <!-- 创建链接模态框 -->
+    <!-- 创建/编辑链接模态框 -->
     <div class="modal" id="createModal">
         <div class="modal-content">
-            <h2 style="margin-bottom: 20px;">创建新链接</h2>
+            <h2 style="margin-bottom: 20px;" id="modalTitle">创建新链接</h2>
             <div class="form-group">
                 <label>链接名称</label>
                 <input type="text" id="linkName" placeholder="例如：Docker Hub 代理">
@@ -339,9 +339,13 @@
                 <label>速率限制 (请求/分钟)</label>
                 <input type="number" id="linkRateLimit" value="100" min="1">
             </div>
+            <div class="form-group">
+                <label>允许访问的 IP（可选，每行一个，支持 CIDR，如 192.168.1.0/24）</label>
+                <textarea id="linkAllowedIPs" rows="3" placeholder="留空表示允许所有 IP" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:4px;font-size:14px;font-family:monospace;"></textarea>
+            </div>
             <div class="modal-footer">
                 <button class="btn" onclick="closeModal()" style="background: #6c757d; color: white;">取消</button>
-                <button class="btn btn-primary" onclick="createLink()">创建</button>
+                <button class="btn btn-primary" id="modalSubmitBtn" onclick="createLink()">创建</button>
             </div>
         </div>
     </div>
@@ -353,6 +357,27 @@
             <div id="detailContent"></div>
             <div class="modal-footer">
                 <button class="btn" onclick="closeDetailModal()" style="background: #6c757d; color: white;">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- IP 白名单设置模态框 -->
+    <div class="modal" id="ipModal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 20px;">设置 IP 白名单</h2>
+            <div class="form-group">
+                <label>允许访问的 IP（每行一个，支持 IPv4/IPv6 和 CIDR）</label>
+                <textarea id="ipAllowedList" rows="6" placeholder="例如：
+192.168.1.100
+10.0.0.0/8
+2001:db8::/32
+::1
+
+留空表示允许所有 IP" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:4px;font-size:14px;font-family:monospace;"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeIPModal()" style="background: #6c757d; color: white;">取消</button>
+                <button class="btn btn-primary" onclick="saveIPSettings()">保存</button>
             </div>
         </div>
     </div>
@@ -387,6 +412,7 @@
     <script>
         let links = [];
         let currentConfig = {};
+        let editingLinkId = null;
 
         async function checkAuth() {
             try {
@@ -442,6 +468,7 @@
                             <th>ID</th>
                             <th>类型</th>
                             <th>鉴权</th>
+                            <th>IP限制</th>
                             <th>状态</th>
                             <th>代理URL</th>
                             <th>操作</th>
@@ -459,6 +486,7 @@
                                     <td><code>${link.id}</code></td>
                                     <td><span class="badge badge-info">${link.type.toUpperCase()}</span></td>
                                     <td><span class="badge badge-info">${authMode === 'single' ? '仅Token' : '双重'}</span></td>
+                                    <td>${link.allowed_ips && link.allowed_ips.length > 0 ? '<span class="badge badge-danger">' + link.allowed_ips.length + ' 条</span>' : '<span class="badge badge-success">无限制</span>'}</td>
                                     <td>
                                         ${link.enabled
                                             ? '<span class="badge badge-success">启用</span>'
@@ -471,6 +499,8 @@
                                         <button class="btn btn-sm" onclick="toggleLink('${link.id}', ${!link.enabled})" style="background: #6c757d; color: white;">
                                             ${link.enabled ? '禁用' : '启用'}
                                         </button>
+                                        <button class="btn btn-sm" onclick="openEditModal('${link.id}')" style="background: #ffc107; color: #333;">编辑</button>
+                                        <button class="btn btn-sm" onclick="openIPModal('${link.id}')" style="background: #17a2b8; color: white;">IP</button>
                                         <button class="btn btn-sm btn-danger" onclick="deleteLink('${link.id}')">删除</button>
                                     </td>
                                 </tr>
@@ -496,6 +526,25 @@
             document.getElementById('linkType').value = 'docker';
             document.getElementById('linkAuthMode').value = 'dual';
             document.getElementById('linkRateLimit').value = '100';
+            document.getElementById('linkAllowedIPs').value = '';
+            document.getElementById('modalTitle').textContent = '创建新链接';
+            document.getElementById('modalSubmitBtn').textContent = '创建';
+            editingLinkId = null;
+        }
+
+        function openEditModal(id) {
+            const link = links.find(l => l.id === id);
+            if (!link) return;
+            editingLinkId = id;
+            document.getElementById('linkName').value = link.name || '';
+            document.getElementById('linkType').value = link.type || 'docker';
+            document.getElementById('linkAuthMode').value = link.auth_mode || 'dual';
+            document.getElementById('linkRateLimit').value = link.rate_limit || 100;
+            const ips = link.allowed_ips || [];
+            document.getElementById('linkAllowedIPs').value = ips.join('\n');
+            document.getElementById('modalTitle').textContent = '编辑链接';
+            document.getElementById('modalSubmitBtn').textContent = '保存';
+            document.getElementById('createModal').classList.add('active');
         }
 
         function closeDetailModal() {
@@ -507,31 +556,38 @@
             const type = document.getElementById('linkType').value;
             const authMode = document.getElementById('linkAuthMode').value;
             const rateLimit = parseInt(document.getElementById('linkRateLimit').value) || 100;
+            const allowedIPsRaw = document.getElementById('linkAllowedIPs').value;
+            const allowed_ips = allowedIPsRaw.split('\n').map(s => s.trim()).filter(s => s);
 
             if (!name) {
                 showToast('请输入链接名称', 'error');
                 return;
             }
 
+            const body = { name, type, auth_mode: authMode, rate_limit: rateLimit, allowed_ips };
+
             try {
-                const res = await fetch('/api/links', {
-                    method: 'POST',
+                const url = editingLinkId ? `/api/links/${editingLinkId}` : '/api/links';
+                const method = editingLinkId ? 'PUT' : 'POST';
+                const res = await fetch(url, {
+                    method: method,
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, type, auth_mode: authMode, rate_limit: rateLimit })
+                    body: JSON.stringify(body)
                 });
 
                 if (res.ok) {
-                    const link = await res.json();
-                    showToast('链接创建成功');
+                    showToast(editingLinkId ? '链接已更新' : '链接创建成功');
                     closeModal();
                     loadLinks();
-                    // 显示详情
-                    showLinkDetail(link);
+                    if (!editingLinkId) {
+                        const link = await res.json();
+                        showLinkDetail(link);
+                    }
                 } else {
-                    showToast('创建失败', 'error');
+                    showToast(editingLinkId ? '更新失败' : '创建失败', 'error');
                 }
             } catch (e) {
-                showToast('创建失败: ' + e.message, 'error');
+                showToast((editingLinkId ? '更新' : '创建') + '失败: ' + e.message, 'error');
             }
         }
 
@@ -568,6 +624,10 @@
                 `;
             }
 
+            const ipInfo = link.allowed_ips && link.allowed_ips.length > 0
+                ? link.allowed_ips.map(ip => `<code>${ip}</code>`).join(', ')
+                : '<span style="color:#666;">允许所有 IP</span>';
+
             document.getElementById('detailContent').innerHTML = `
                 <div class="form-group">
                     <label>链接ID</label>
@@ -580,6 +640,10 @@
                 <div class="form-group">
                     <label>代理地址</label>
                     <div class="token-display">${proxyUrl} <button class="copy-btn" onclick="copyText('${proxyUrl}')">复制</button></div>
+                </div>
+                <div class="form-group">
+                    <label>允许访问的IP</label>
+                    <div>${ipInfo}</div>
                 </div>
                 <div class="form-group">
                     <label>使用方式</label>
@@ -624,6 +688,45 @@
             }
         }
 
+        function openIPModal(id) {
+            const link = links.find(l => l.id === id);
+            if (!link) return;
+            editingLinkId = id;
+            const ips = link.allowed_ips || [];
+            document.getElementById('ipAllowedList').value = ips.join('\n');
+            document.getElementById('ipModal').classList.add('active');
+        }
+
+        function closeIPModal() {
+            document.getElementById('ipModal').classList.remove('active');
+            editingLinkId = null;
+            document.getElementById('ipAllowedList').value = '';
+        }
+
+        async function saveIPSettings() {
+            if (!editingLinkId) return;
+            const raw = document.getElementById('ipAllowedList').value;
+            const allowed_ips = raw.split('\n').map(s => s.trim()).filter(s => s);
+
+            try {
+                const res = await fetch(`/api/links/${editingLinkId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ allowed_ips })
+                });
+
+                if (res.ok) {
+                    showToast('IP 白名单已更新');
+                    closeIPModal();
+                    loadLinks();
+                } else {
+                    showToast('保存失败', 'error');
+                }
+            } catch (e) {
+                showToast('保存失败: ' + e.message, 'error');
+            }
+        }
+
         async function regenerateToken(id) {
             try {
                 const res = await fetch(`/api/links/${id}/token`, { method: 'POST' });
@@ -641,10 +744,32 @@
             copyText(url);
         }
 
-        function copyText(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                showToast('已复制到剪贴板');
-            });
+        async function copyText(text) {
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(text);
+                    showToast('已复制到剪贴板');
+                    return;
+                }
+
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+
+                if (ok) {
+                    showToast('已复制到剪贴板');
+                } else {
+                    showToast('复制失败，请手动复制', 'error');
+                }
+            } catch (e) {
+                showToast('复制失败，请手动复制', 'error');
+            }
         }
 
         function showToast(message, type = 'success') {
@@ -723,7 +848,13 @@
         document.querySelectorAll('.modal').forEach(modal => {
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
-                    modal.classList.remove('active');
+                    if (modal.id === 'createModal') {
+                        closeModal();
+                    } else if (modal.id === 'ipModal') {
+                        closeIPModal();
+                    } else {
+                        modal.classList.remove('active');
+                    }
                 }
             });
         });

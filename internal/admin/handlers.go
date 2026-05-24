@@ -14,6 +14,17 @@ import (
 	"mirror-proxy/internal/config"
 )
 
+func normalizeIPs(ips []string) []string {
+	var out []string
+	for _, ip := range ips {
+		ip = strings.TrimSpace(ip)
+		if ip != "" {
+			out = append(out, ip)
+		}
+	}
+	return out
+}
+
 type Handler struct {
 	cfg       *config.Config
 	onRestart func()
@@ -192,10 +203,11 @@ func (h *Handler) GetLinks(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name      string `json:"name"`
-		Type      string `json:"type"`
-		RateLimit int    `json:"rate_limit"`
-		AuthMode  string `json:"auth_mode"`
+		Name       string   `json:"name"`
+		Type       string   `json:"type"`
+		RateLimit  int      `json:"rate_limit"`
+		AuthMode   string   `json:"auth_mode"`
+		AllowedIPs []string `json:"allowed_ips"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -214,14 +226,15 @@ func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	link := &config.Link{
-		ID:        generateID(),
-		Name:      req.Name,
-		Token:     auth.GenerateToken(),
-		Type:      req.Type,
-		AuthMode:  req.AuthMode,
-		Enabled:   true,
-		RateLimit: req.RateLimit,
-		CreatedAt: time.Now().Unix(),
+		ID:         generateID(),
+		Name:       req.Name,
+		Token:      auth.GenerateToken(),
+		Type:       req.Type,
+		AuthMode:   req.AuthMode,
+		Enabled:    true,
+		RateLimit:  req.RateLimit,
+		AllowedIPs: normalizeIPs(req.AllowedIPs),
+		CreatedAt:  time.Now().Unix(),
 	}
 
 	h.cfg.SetLink(link)
@@ -244,11 +257,12 @@ func (h *Handler) UpdateLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name      string `json:"name"`
-		Type      string `json:"type"`
-		Enabled   *bool  `json:"enabled,omitempty"`
-		RateLimit int    `json:"rate_limit"`
-		AuthMode  string `json:"auth_mode"`
+		Name       string   `json:"name"`
+		Type       string   `json:"type"`
+		Enabled    *bool    `json:"enabled,omitempty"`
+		RateLimit  int      `json:"rate_limit"`
+		AuthMode   string   `json:"auth_mode"`
+		AllowedIPs []string `json:"allowed_ips,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -270,6 +284,9 @@ func (h *Handler) UpdateLink(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.AuthMode != "" {
 		link.AuthMode = req.AuthMode
+	}
+	if req.AllowedIPs != nil {
+		link.AllowedIPs = normalizeIPs(req.AllowedIPs)
 	}
 
 	h.cfg.SetLink(link)

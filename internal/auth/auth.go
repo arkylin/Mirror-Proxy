@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -82,6 +83,65 @@ func getAuthMode(link *config.Link) string {
 	return link.AuthMode
 }
 
+// CheckIPAllowed 检查客户端 IP 是否在链接的白名单中
+func CheckIPAllowed(clientIP string, allowedIPs []string) bool {
+	if len(allowedIPs) == 0 {
+		return true
+	}
+
+	ip := net.ParseIP(clientIP)
+	if ip == nil {
+		// 尝试去掉端口
+		host, _, err := net.SplitHostPort(clientIP)
+		if err == nil {
+			ip = net.ParseIP(host)
+		}
+		if ip == nil {
+			return false
+		}
+	}
+
+	for _, allowed := range allowedIPs {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "" {
+			continue
+		}
+
+		// CIDR 格式
+		if strings.Contains(allowed, "/") {
+			_, ipNet, err := net.ParseCIDR(allowed)
+			if err == nil && ipNet.Contains(ip) {
+				return true
+			}
+			continue
+		}
+
+		// 单个 IP
+		allowedIP := net.ParseIP(allowed)
+		if allowedIP != nil && allowedIP.Equal(ip) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractClientIP 从请求中提取客户端 IP（去掉端口）
+func extractClientIP(r *http.Request) string {
+	ip := r.RemoteAddr
+	if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
+		ip = strings.Split(xf, ",")[0]
+	} else if xr := r.Header.Get("X-Real-Ip"); xr != "" {
+		ip = xr
+	}
+	ip = strings.TrimSpace(ip)
+	host, _, err := net.SplitHostPort(ip)
+	if err == nil {
+		ip = host
+	}
+	return ip
+}
+
 func ValidateLinkToken(linkID, token string) (*config.Link, bool) {
 	cfg := config.Get()
 	link, ok := cfg.GetLink(linkID)
@@ -118,6 +178,7 @@ func ValidateLinkTokenSingle(token string) (*config.Link, bool) {
 type contextKey string
 
 const LinkContextKey contextKey = "link"
+const TokenPrefixContextKey contextKey = "tokenPrefix"
 
 func ProxyAuthMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -132,11 +193,13 @@ func ProxyAuthMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 			var link *config.Link
 			var ok bool
 			var newPath string
+			var tokenPrefix string
 
 			// 优先尝试 dual 模式 (/{linkID}/{token}/...)
 			if len(parts) >= 2 {
 				link, ok = ValidateLinkToken(parts[0], parts[1])
 				if ok {
+					tokenPrefix = "/" + parts[0] + "/" + parts[1]
 					if len(parts) == 2 {
 						newPath = "/"
 					} else {
@@ -149,6 +212,7 @@ func ProxyAuthMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 			if !ok {
 				link, ok = ValidateLinkTokenSingle(parts[0])
 				if ok {
+					tokenPrefix = "/" + parts[0]
 					if len(parts) == 1 {
 						newPath = "/"
 					} else {
@@ -162,9 +226,11 @@ func ProxyAuthMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 				return
 			}
 
-			clientIP := r.RemoteAddr
-			if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
-				clientIP = strings.Split(xf, ",")[0]
+			clientIP := extractClientIP(r)
+
+			if !CheckIPAllowed(clientIP, link.AllowedIPs) {
+				http.Error(w, "Forbidden: IP not allowed", http.StatusForbidden)
+				return
 			}
 
 			if !rl.Allow(clientIP, link.RateLimit) {
@@ -174,8 +240,9 @@ func ProxyAuthMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 
 			r.URL.Path = newPath
 
-			// 存储link到context
+			// 存储link和token前缀到context
 			ctx := context.WithValue(r.Context(), LinkContextKey, link)
+			ctx = context.WithValue(ctx, TokenPrefixContextKey, tokenPrefix)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
