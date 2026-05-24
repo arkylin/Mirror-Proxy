@@ -18,15 +18,16 @@ func GetConfigFilePath() string {
 }
 
 type Config struct {
-	ListenAddr       string            `json:"listen_addr"`
-	AdminPath        string            `json:"admin_path"`
-	AdminUser        string            `json:"admin_user"`
-	AdminPass        string            `json:"admin_pass"`
-	DockerHubHost    string            `json:"docker_hub_host"`
-	GHCRCacheEnabled bool              `json:"ghcr_cache_enabled"`
-	CacheDir         string            `json:"cache_dir"`
-	MaxCacheSize     int64             `json:"max_cache_size"`
-	Links            map[string]*Link  `json:"links"`
+	ListenAddr       string           `json:"listen_addr"`
+	AdminPath        string           `json:"admin_path"`
+	AdminUser        string           `json:"admin_user"`
+	AdminPass        string           `json:"admin_pass"`
+	SessionTimeout   int              `json:"session_timeout"` // hours
+	DockerHubHost    string           `json:"docker_hub_host"`
+	GHCRCacheEnabled bool             `json:"ghcr_cache_enabled"`
+	CacheDir         string           `json:"cache_dir"`
+	MaxCacheSize     int64            `json:"max_cache_size"`
+	Links            map[string]*Link `json:"links"`
 	mu               sync.RWMutex
 }
 
@@ -74,6 +75,7 @@ func defaultConfig() *Config {
 		AdminPath:        "/admin",
 		AdminUser:        "admin",
 		AdminPass:        "admin123",
+		SessionTimeout:   24,
 		DockerHubHost:    "registry-1.docker.io",
 		GHCRCacheEnabled: true,
 		CacheDir:         "./cache",

@@ -107,11 +107,22 @@ func buildHandler(cfg *config.Config) (*admin.Handler, http.Handler) {
 		adminPath = "/admin"
 	}
 
-	// 管理后台
-	adminAuth := middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass)
+	adminAuth := middleware.SessionAuth(adminHandler.SessionStore(), adminPath+"/login")
+
+	// 登录页面（免认证）
+	mux.HandleFunc(adminPath+"/login", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "web/static/login.html")
+	})
+
+	// 管理后台（需要 session 认证）
 	mux.Handle(adminPath+"/", adminAuth(http.StripPrefix(adminPath, http.FileServer(http.Dir("web/static")))))
 
-	// 管理API
+	// 认证 API（login 免认证，其他需要认证）
+	mux.HandleFunc("/api/auth/login", adminHandler.Login)
+	mux.HandleFunc("/api/auth/logout", adminAuth(http.HandlerFunc(adminHandler.Logout)).ServeHTTP)
+	mux.HandleFunc("/api/auth/me", adminAuth(http.HandlerFunc(adminHandler.GetMe)).ServeHTTP)
+
+	// 管理 API（需要认证）
 	mux.HandleFunc("/api/links", adminAuth(http.HandlerFunc(adminHandler.LinksHandler)).ServeHTTP)
 	mux.HandleFunc("/api/links/", adminAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/token") {

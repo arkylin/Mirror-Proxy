@@ -19,6 +19,29 @@
             margin-bottom: 30px;
         }
         header h1 { font-size: 24px; }
+        .user-bar {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 14px;
+        }
+        .user-bar .username {
+            color: #ccc;
+        }
+        .user-bar .btn-logout {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 5px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .user-bar .btn-logout:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: rgba(255,255,255,0.5);
+        }
         .stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -222,7 +245,13 @@
     <header>
         <div class="container" style="display:flex;justify-content:space-between;align-items:center;">
             <h1>Mirror Proxy - 镜像代理管理后台</h1>
-            <button class="btn btn-primary" onclick="openSettingsModal()">⚙️ 系统设置</button>
+            <div style="display:flex;align-items:center;gap:15px;">
+                <div class="user-bar" id="userBar" style="display:none;">
+                    <span class="username" id="currentUser">admin</span>
+                    <button class="btn-logout" onclick="doLogout()">退出登录</button>
+                </div>
+                <button class="btn btn-primary" onclick="openSettingsModal()">系统设置</button>
+            </div>
         </div>
     </header>
 
@@ -333,10 +362,6 @@
         <div class="modal-content">
             <h2 style="margin-bottom: 20px;">系统设置</h2>
             <div class="form-group">
-                <label>监听地址</label>
-                <input type="text" id="cfgListenAddr" placeholder=":8080">
-            </div>
-            <div class="form-group">
                 <label>管理后台路径</label>
                 <input type="text" id="cfgAdminPath" placeholder="/admin">
             </div>
@@ -348,6 +373,10 @@
                 <label>管理员密码（留空表示不修改）</label>
                 <input type="password" id="cfgAdminPass" placeholder="不修改请留空">
             </div>
+            <div class="form-group">
+                <label>Session 有效期（小时）</label>
+                <input type="number" id="cfgSessionTimeout" value="24" min="1" max="720">
+            </div>
             <div class="modal-footer">
                 <button class="btn" onclick="closeSettingsModal()" style="background: #6c757d; color: white;">取消</button>
                 <button class="btn btn-primary" onclick="saveConfig()">保存</button>
@@ -358,6 +387,28 @@
     <script>
         let links = [];
         let currentConfig = {};
+
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/auth/me');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('currentUser').textContent = data.username;
+                    document.getElementById('userBar').style.display = 'flex';
+                } else {
+                    window.location.href = 'login';
+                }
+            } catch (e) {
+                window.location.href = 'login';
+            }
+        }
+
+        async function doLogout() {
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+            } catch (e) {}
+            window.location.href = 'login';
+        }
 
         async function loadLinks() {
             try {
@@ -615,10 +666,10 @@
         }
 
         function openSettingsModal() {
-            document.getElementById('cfgListenAddr').value = currentConfig.listen_addr || ':8080';
             document.getElementById('cfgAdminPath').value = currentConfig.admin_path || '/admin';
             document.getElementById('cfgAdminUser').value = currentConfig.admin_user || 'admin';
             document.getElementById('cfgAdminPass').value = '';
+            document.getElementById('cfgSessionTimeout').value = currentConfig.session_timeout || 24;
             document.getElementById('settingsModal').classList.add('active');
         }
 
@@ -627,18 +678,18 @@
         }
 
         async function saveConfig() {
-            const listenAddr = document.getElementById('cfgListenAddr').value.trim();
             const adminPath = document.getElementById('cfgAdminPath').value.trim();
             const adminUser = document.getElementById('cfgAdminUser').value.trim();
             const adminPass = document.getElementById('cfgAdminPass').value;
+            const sessionTimeout = parseInt(document.getElementById('cfgSessionTimeout').value) || 24;
 
-            if (!listenAddr || !adminPath || !adminUser) {
+            if (!adminPath || !adminUser) {
                 showToast('请填写完整信息', 'error');
                 return;
             }
 
             try {
-                const body = { listen_addr: listenAddr, admin_path: adminPath, admin_user: adminUser };
+                const body = { admin_path: adminPath, admin_user: adminUser, session_timeout: sessionTimeout };
                 if (adminPass) body.admin_pass = adminPass;
 
                 const res = await fetch('/api/config', {
@@ -654,13 +705,7 @@
                         showToast('配置已保存，服务正在应用新配置');
                         closeSettingsModal();
                         setTimeout(() => {
-                            const newPort = data.listen_addr.includes(':') ? data.listen_addr.split(':').pop() : '';
-                            const currentPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-                            if (newPort && newPort !== currentPort) {
-                                showToast('服务已在新端口启动，请使用新地址访问', 'warning');
-                            } else {
-                                window.location.href = data.admin_path + '/';
-                            }
+                            window.location.href = data.admin_path + '/';
                         }, 1500);
                     } else {
                         showToast('保存成功');
@@ -684,8 +729,10 @@
         });
 
         // 加载数据
-        loadConfig();
-        loadLinks();
+        checkAuth().then(() => {
+            loadConfig();
+            loadLinks();
+        });
     </script>
 </body>
 </html>

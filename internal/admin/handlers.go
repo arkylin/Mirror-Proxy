@@ -2,10 +2,12 @@ package admin
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"mirror-proxy/internal/auth"
@@ -13,26 +15,181 @@ import (
 )
 
 type Handler struct {
-	cfg         *config.Config
-	onRestart   func()
+	cfg       *config.Config
+	onRestart func()
+	sessions  *SessionStore
 }
 
 func NewHandler(cfg *config.Config) *Handler {
-	return &Handler{cfg: cfg}
+	return &Handler{
+		cfg:      cfg,
+		sessions: newSessionStore(),
+	}
 }
 
 func (h *Handler) SetOnRestart(fn func()) {
 	h.onRestart = fn
 }
 
-// GetLinks 获取所有链接
+// ---------- Session Management ----------
+
+type Session struct {
+	Token    string
+	Username string
+	Expires  time.Time
+}
+
+type SessionStore struct {
+	mu       sync.RWMutex
+	sessions map[string]*Session
+}
+
+func newSessionStore() *SessionStore {
+	s := &SessionStore{sessions: make(map[string]*Session)}
+	go s.cleanupLoop()
+	return s
+}
+
+func (s *SessionStore) cleanupLoop() {
+	ticker := time.NewTicker(time.Minute)
+	for range ticker.C {
+		s.mu.Lock()
+		for token, sess := range s.sessions {
+			if time.Now().After(sess.Expires) {
+				delete(s.sessions, token)
+			}
+		}
+		s.mu.Unlock()
+	}
+}
+
+func (s *SessionStore) Create(username string, timeoutHours int) *Session {
+	b := make([]byte, 32)
+	rand.Read(b)
+	token := hex.EncodeToString(b)
+
+	if timeoutHours <= 0 {
+		timeoutHours = 24
+	}
+
+	sess := &Session{
+		Token:    token,
+		Username: username,
+		Expires:  time.Now().Add(time.Duration(timeoutHours) * time.Hour),
+	}
+
+	s.mu.Lock()
+	s.sessions[token] = sess
+	s.mu.Unlock()
+
+	return sess
+}
+
+func (s *SessionStore) Get(token string) (*Session, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sess, ok := s.sessions[token]
+	if !ok || time.Now().After(sess.Expires) {
+		return nil, false
+	}
+	return sess, true
+}
+
+func (s *SessionStore) Delete(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, token)
+}
+
+func (h *Handler) SessionStore() *SessionStore {
+	return h.sessions
+}
+
+// ---------- Auth Handlers ----------
+
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		return
+	}
+
+	if req.Username != h.cfg.AdminUser || req.Password != h.cfg.AdminPass {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid credentials"})
+		return
+	}
+
+	sess := h.sessions.Create(req.Username, h.cfg.SessionTimeout)
+
+	maxAge := h.cfg.SessionTimeout * 3600
+	if maxAge <= 0 {
+		maxAge = 86400
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    sess.Token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"username": sess.Username})
+}
+
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session")
+	if err == nil {
+		h.sessions.Delete(cookie.Value)
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session")
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "not authenticated"})
+		return
+	}
+
+	sess, ok := h.sessions.Get(cookie.Value)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "session expired"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"username": sess.Username})
+}
+
+// ---------- Link Handlers ----------
+
 func (h *Handler) GetLinks(w http.ResponseWriter, r *http.Request) {
 	links := h.cfg.ListLinks()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(links)
 }
 
-// CreateLink 创建新链接
 func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name      string `json:"name"`
@@ -77,7 +234,6 @@ func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(link)
 }
 
-// UpdateLink 更新链接
 func (h *Handler) UpdateLink(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path[len("/api/links/"):]
 
@@ -126,7 +282,6 @@ func (h *Handler) UpdateLink(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(link)
 }
 
-// DeleteLink 删除链接
 func (h *Handler) DeleteLink(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path[len("/api/links/"):]
 
@@ -145,7 +300,6 @@ func (h *Handler) DeleteLink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// RegenerateToken 重新生成token
 func (h *Handler) RegenerateToken(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path[len("/api/links/"):len(r.URL.Path)-len("/token")]
 
@@ -166,7 +320,6 @@ func (h *Handler) RegenerateToken(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"token": link.Token})
 }
 
-// GetStats 获取统计信息
 func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	links := h.cfg.ListLinks()
 	stats := make(map[string]interface{})
@@ -177,26 +330,24 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(stats)
 }
 
-// GetConfig 获取配置
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"listen_addr":    h.cfg.ListenAddr,
-		"admin_path":     h.cfg.AdminPath,
-		"admin_user":     h.cfg.AdminUser,
-		"docker_enabled": true,
-		"ghcr_enabled":   true,
-		"github_enabled": true,
+		"admin_path":      h.cfg.AdminPath,
+		"admin_user":      h.cfg.AdminUser,
+		"session_timeout": h.cfg.SessionTimeout,
+		"docker_enabled":  true,
+		"ghcr_enabled":    true,
+		"github_enabled":  true,
 	})
 }
 
-// UpdateConfig 更新系统配置
 func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ListenAddr string `json:"listen_addr"`
-		AdminPath  string `json:"admin_path"`
-		AdminUser  string `json:"admin_user"`
-		AdminPass  string `json:"admin_pass"`
+		AdminPath     string `json:"admin_path"`
+		AdminUser     string `json:"admin_user"`
+		AdminPass     string `json:"admin_pass"`
+		SessionTimeout int   `json:"session_timeout"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -206,10 +357,6 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	restartRequired := false
 
-	if req.ListenAddr != "" {
-		h.cfg.ListenAddr = req.ListenAddr
-		restartRequired = true
-	}
 	if req.AdminPath != "" {
 		if !strings.HasPrefix(req.AdminPath, "/") {
 			req.AdminPath = "/" + req.AdminPath
@@ -225,6 +372,9 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if req.AdminPass != "" {
 		h.cfg.AdminPass = req.AdminPass
 	}
+	if req.SessionTimeout > 0 {
+		h.cfg.SessionTimeout = req.SessionTimeout
+	}
 
 	if err := h.cfg.Save(config.GetConfigFilePath()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -237,9 +387,9 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"listen_addr":      h.cfg.ListenAddr,
 		"admin_path":       h.cfg.AdminPath,
 		"admin_user":       h.cfg.AdminUser,
+		"session_timeout":  h.cfg.SessionTimeout,
 		"restart_required": restartRequired,
 	})
 }
@@ -271,8 +421,28 @@ func (h *Handler) LinksHandler(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
+// AuthHandler 认证路由分发
+func (h *Handler) AuthHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		if r.URL.Path == "/api/auth/login" {
+			h.Login(w, r)
+			return
+		}
+		if r.URL.Path == "/api/auth/logout" {
+			h.Logout(w, r)
+			return
+		}
+	case http.MethodGet:
+		if r.URL.Path == "/api/auth/me" {
+			h.GetMe(w, r)
+			return
+		}
+	}
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
 func generateID() string {
-	// 生成8位随机ID
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, 8)
 	for i := range b {
