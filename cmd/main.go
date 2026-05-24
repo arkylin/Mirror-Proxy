@@ -16,6 +16,80 @@ import (
 	"mirror-proxy/internal/proxy"
 )
 
+import (
+	"net/url"
+)
+
+// extractTargetURL 从请求路径中提取目标 URL
+// 支持格式: /https://target.com/path 或 /http://target.com/path 或 /target.com/path
+// 如果匹配，修改 r.URL.Path 为目标路径并返回目标 URL
+func extractTargetURL(r *http.Request) (string, bool) {
+	path := strings.TrimPrefix(r.URL.Path, "/")
+
+	// 完整 URL 格式: https://... 或 http://...
+	if strings.HasPrefix(path, "https://") {
+		u, err := url.Parse(path)
+		if err == nil {
+			r.URL.Path = u.Path
+			if u.RawQuery != "" {
+				r.URL.RawQuery = u.RawQuery
+			}
+			return path, true
+		}
+	}
+	if strings.HasPrefix(path, "http://") {
+		u, err := url.Parse(path)
+		if err == nil {
+			r.URL.Path = u.Path
+			if u.RawQuery != "" {
+				r.URL.RawQuery = u.RawQuery
+			}
+			return path, true
+		}
+	}
+
+	// 浏览器规范化后的格式: https:/... 或 http:/...
+	if strings.HasPrefix(path, "https:/") {
+		targetURL := "https://" + strings.TrimPrefix(path, "https:/")
+		u, err := url.Parse(targetURL)
+		if err == nil {
+			r.URL.Path = u.Path
+			if u.RawQuery != "" {
+				r.URL.RawQuery = u.RawQuery
+			}
+			return targetURL, true
+		}
+	}
+	if strings.HasPrefix(path, "http:/") {
+		targetURL := "http://" + strings.TrimPrefix(path, "http:/")
+		u, err := url.Parse(targetURL)
+		if err == nil {
+			r.URL.Path = u.Path
+			if u.RawQuery != "" {
+				r.URL.RawQuery = u.RawQuery
+			}
+			return targetURL, true
+		}
+	}
+
+	// 无协议前缀的域名
+	if strings.HasPrefix(path, "github.com/") ||
+		strings.HasPrefix(path, "raw.githubusercontent.com/") ||
+		strings.HasPrefix(path, "api.github.com/") {
+		targetURL := "https://" + path
+		u, err := url.Parse(targetURL)
+		if err == nil {
+			r.URL.Path = u.Path
+			if u.RawQuery != "" {
+				r.URL.RawQuery = u.RawQuery
+			}
+			return targetURL, true
+		}
+	}
+
+	return "", false
+}
+
 func buildHandler(cfg *config.Config) (*admin.Handler, http.Handler) {
 	rl := auth.NewRateLimiter()
 	adminHandler := admin.NewHandler(cfg)
@@ -75,6 +149,12 @@ func buildHandler(cfg *config.Config) (*admin.Handler, http.Handler) {
 		link, ok := r.Context().Value(auth.LinkContextKey).(*config.Link)
 		if !ok {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// URL 代理模式: /https://target.com/path 或 /target.com/path
+		if targetURL, isURL := extractTargetURL(r); isURL {
+			proxy.DynamicProxy(targetURL).ServeHTTP(w, r)
 			return
 		}
 

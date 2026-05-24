@@ -152,7 +152,7 @@ func ProxyAuthMiddleware(rl *RateLimiter) func(http.Handler) http.Handler {
 					if len(parts) == 1 {
 						newPath = "/"
 					} else {
-						newPath = "/" + parts[1]
+						newPath = "/" + strings.Join(parts[1:], "/")
 					}
 				}
 			}
