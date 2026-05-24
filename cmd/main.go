@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"mirror-proxy/internal/admin"
 	"mirror-proxy/internal/auth"
@@ -14,16 +16,7 @@ import (
 	"mirror-proxy/internal/proxy"
 )
 
-func main() {
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "config.json"
-	}
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
+func buildHandler(cfg *config.Config) (*admin.Handler, http.Handler) {
 	rl := auth.NewRateLimiter()
 	adminHandler := admin.NewHandler(cfg)
 
@@ -112,16 +105,59 @@ func main() {
 		authProxy.ServeHTTP(w, r)
 	})
 
-	os.MkdirAll("web/static", 0755)
+	return adminHandler, middleware.CORS(mux)
+}
 
-	handler := middleware.CORS(mux)
+func main() {
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "config.json"
+	}
 
-	fmt.Printf("Mirror Proxy Server starting on %s\n", cfg.ListenAddr)
-	fmt.Printf("Admin panel: http://localhost%s%s/\n", cfg.ListenAddr, adminPath)
-	fmt.Printf("Admin user: %s\n", cfg.AdminUser)
-	fmt.Printf("Docker Hub:  http://localhost%s/{linkID}/{token}/v2/...\n", cfg.ListenAddr)
-	fmt.Printf("GHCR:        http://localhost%s/{linkID}/{token}/v2/...\n", cfg.ListenAddr)
-	fmt.Printf("GitHub:      http://localhost%s/{linkID}/{token}/github/...\n", cfg.ListenAddr)
+	restartCh := make(chan struct{}, 1)
 
-	log.Fatal(http.ListenAndServe(cfg.ListenAddr, handler))
+	for {
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+
+		adminHandler, handler := buildHandler(cfg)
+		adminHandler.SetOnRestart(func() {
+			select {
+			case restartCh <- struct{}{}:
+			default:
+			}
+		})
+
+		os.MkdirAll("web/static", 0755)
+
+		srv := &http.Server{
+			Addr:    cfg.ListenAddr,
+			Handler: handler,
+		}
+
+		fmt.Printf("Mirror Proxy Server starting on %s\n", cfg.ListenAddr)
+		fmt.Printf("Admin panel: http://localhost%s%s/\n", cfg.ListenAddr, cfg.AdminPath)
+		fmt.Printf("Admin user: %s\n", cfg.AdminUser)
+		fmt.Printf("Docker Hub:  http://localhost%s/{linkID}/{token}/v2/...\n", cfg.ListenAddr)
+		fmt.Printf("GHCR:        http://localhost%s/{linkID}/{token}/v2/...\n", cfg.ListenAddr)
+		fmt.Printf("GitHub:      http://localhost%s/{linkID}/{token}/github/...\n", cfg.ListenAddr)
+
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("Server error: %v", err)
+			}
+		}()
+
+		<-restartCh
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("Server shutdown error: %v", err)
+		}
+		cancel()
+
+		log.Println("Server restarting with new configuration...")
+	}
 }

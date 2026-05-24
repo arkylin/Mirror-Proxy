@@ -13,11 +13,16 @@ import (
 )
 
 type Handler struct {
-	cfg *config.Config
+	cfg         *config.Config
+	onRestart   func()
 }
 
 func NewHandler(cfg *config.Config) *Handler {
 	return &Handler{cfg: cfg}
+}
+
+func (h *Handler) SetOnRestart(fn func()) {
+	h.onRestart = fn
 }
 
 // GetLinks 获取所有链接
@@ -224,6 +229,10 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if err := h.cfg.Save(config.GetConfigFilePath()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if restartRequired && h.onRestart != nil {
+		go h.onRestart()
 	}
 
 	w.Header().Set("Content-Type", "application/json")

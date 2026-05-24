@@ -650,12 +650,21 @@
                 if (res.ok) {
                     const data = await res.json();
                     currentConfig = data;
-                    showToast('保存成功');
-                    closeSettingsModal();
                     if (data.restart_required) {
+                        showToast('配置已保存，服务正在应用新配置');
+                        closeSettingsModal();
                         setTimeout(() => {
-                            alert('配置已保存，由于修改了监听地址或管理后台路径，需要重启服务才能生效。');
-                        }, 300);
+                            const newPort = data.listen_addr.includes(':') ? data.listen_addr.split(':').pop() : '';
+                            const currentPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+                            if (newPort && newPort !== currentPort) {
+                                showToast('服务已在新端口启动，请使用新地址访问', 'warning');
+                            } else {
+                                window.location.href = data.admin_path + '/';
+                            }
+                        }, 1500);
+                    } else {
+                        showToast('保存成功');
+                        closeSettingsModal();
                     }
                 } else {
                     showToast('保存失败', 'error');
