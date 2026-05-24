@@ -51,35 +51,39 @@ func DynamicProxy(targetURL string) http.Handler {
 				}
 			}
 
-			if tokenPrefix == "" {
-				return nil
-			}
+			if tokenPrefix != "" {
+				host, proto := loadProxyInfo(resp.Request)
 
-			host, proto := loadProxyInfo(resp.Request)
-
-			// 重写 Location header
-			if loc := resp.Header.Get("Location"); loc != "" {
-				resp.Header.Set("Location", rewriteURL(loc, tokenPrefix))
-			}
-
-			// 对 HTML 响应做服务端 URL 重写 + 注入 JS 兜底
-			contentType := resp.Header.Get("Content-Type")
-			if strings.Contains(contentType, "text/html") && resp.Body != nil {
-				body, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return err
+				// 重写 Location header
+				if loc := resp.Header.Get("Location"); loc != "" {
+					resp.Header.Set("Location", rewriteURL(loc, tokenPrefix))
 				}
-				resp.Body.Close()
 
-				// 1. 服务端重写所有已知 URL 属性（应对 CSP 禁止内联脚本的情况）
-				body = rewriteHTMLBody(body, tokenPrefix, host, proto)
-				// 2. 注入 JS 处理动态添加的内容（无 CSP 时生效）
-				body = injectTokenPrefixScript(body, tokenPrefix)
+				// 对 HTML 响应做服务端 URL 重写 + 注入 JS 兜底
+				contentType := resp.Header.Get("Content-Type")
+				if strings.Contains(contentType, "text/html") && resp.Body != nil {
+					body, err := io.ReadAll(resp.Body)
+					if err != nil {
+						return err
+					}
+					resp.Body.Close()
 
-				resp.Body = io.NopCloser(bytes.NewReader(body))
-				resp.ContentLength = int64(len(body))
-				resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+					// 1. 服务端重写所有已知 URL 属性（应对 CSP 禁止内联脚本的情况）
+					body = rewriteHTMLBody(body, tokenPrefix, host, proto)
+					// 2. 注入 JS 处理动态添加的内容（无 CSP 时生效）
+					body = injectTokenPrefixScript(body, tokenPrefix)
+
+					resp.Body = io.NopCloser(bytes.NewReader(body))
+					resp.ContentLength = int64(len(body))
+					resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+					resp.Header.Del("Transfer-Encoding")
+				}
 			}
+
+			// 确保所有响应都带上 CORS 头
+			resp.Header.Set("Access-Control-Allow-Origin", "*")
+			resp.Header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH")
+			resp.Header.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Origin, X-Requested-With")
 
 			return nil
 		},

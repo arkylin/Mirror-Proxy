@@ -114,7 +114,13 @@ func NewGitHubProxy() http.Handler {
 			resp.Body = io.NopCloser(bytes.NewReader(body))
 			resp.ContentLength = int64(len(body))
 			resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+			resp.Header.Del("Transfer-Encoding")
 		}
+
+		// 确保所有响应都带上 CORS 头
+		resp.Header.Set("Access-Control-Allow-Origin", "*")
+		resp.Header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH")
+		resp.Header.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, Origin, X-Requested-With")
 
 		return nil
 	}
@@ -157,15 +163,31 @@ func rewriteURL(u string, prefix string) string {
 }
 
 // injectTokenPrefixScript 在 HTML 中注入 JS 脚本，重写所有链接使其包含 token 前缀
-// 同时拦截 fetch / XMLHttpRequest，将直接访问 github.com 的请求也转回代理。
+// 同时拦截 fetch / XMLHttpRequest / EventSource / WebSocket，将直接访问 github.com
+// 的请求也转回代理，从而彻底避免 CORS 问题。
 func injectTokenPrefixScript(body []byte, prefix string) []byte {
 	script := []byte(`<script>` +
 		`(function(){` +
 		`var p='` + prefix + `';` +
 		`function rw(v){return v&&v.startsWith('/')&&!v.startsWith(p+'/')&&v!==p?p+v:v};` +
-		`function rfw(u){if(typeof u!=='string')return u;if(u.startsWith(p+'/')||u===p)return u;var a=['https://github.com/','https://raw.githubusercontent.com/','https://api.github.com/'];for(var i=0;i<a.length;i++){if(u.startsWith(a[i]))return p+'/'+u;}if(u.startsWith('/'))return p+u;return u;}` +
-		`var of=window.fetch;window.fetch=function(u,o){if(typeof u==='string'){u=rfw(u);}return of.call(this,u,o);};` +
+		`function rfw(u){` +
+		`if(typeof u!=='string'){` +
+		`if(u&&typeof u==='object'){` +
+		`if(typeof u.url==='string'){var r=rfw(u.url);if(r!==u.url){try{var q={};['method','headers','body','mode','credentials','cache','redirect','referrer','referrerPolicy','integrity','keepalive','signal'].forEach(function(k){if(k in u)q[k]=u[k]});return new Request(r,q);}catch(e){return r;}}return u;}` +
+		`if(typeof u.href==='string'){var r=rfw(u.href);return r!==u.href?r:u;}` +
+		`}` +
+		`return u;` +
+		`}` +
+		`if(u.startsWith(p+'/')||u===p)return u;` +
+		`var a=['https://github.com/','https://raw.githubusercontent.com/','https://api.github.com/','wss://github.com/','wss://raw.githubusercontent.com/','wss://api.github.com/'];` +
+		`for(var i=0;i<a.length;i++){if(u.startsWith(a[i]))return p+'/'+u;}` +
+		`if(u.startsWith('/'))return p+u;` +
+		`return u;` +
+		`}` +
+		`var of=window.fetch;window.fetch=function(u,o){u=rfw(u);return of.call(this,u,o);};` +
 		`var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(){var a=Array.prototype.slice.call(arguments);if(a.length>1){a[1]=rfw(a[1]);}return oo.apply(this,a);};` +
+		`if(typeof EventSource!=='undefined'){var oes=window.EventSource;window.EventSource=function(u,o){u=rfw(u);return new oes(u,o);};}` +
+		`if(typeof WebSocket!=='undefined'){var ows=window.WebSocket;window.WebSocket=function(u,p){if(typeof u==='string'){u=rfw(u);}return new ows(u,p);};}` +
 		`function fix(root){` +
 		`root.querySelectorAll&&root.querySelectorAll('a[href]').forEach(function(a){a.href=rw(a.getAttribute('href'))});` +
 		`root.querySelectorAll&&root.querySelectorAll('form[action]').forEach(function(f){f.action=rw(f.getAttribute('action'))});` +
@@ -195,7 +217,19 @@ func injectTokenPrefixScript(body []byte, prefix string) []byte {
 		`})();` +
 		`</script>`)
 
-	// 尝试在 </head> 前插入
+	// 优先在 <head> 标签后插入，确保比页面其他脚本先执行
+	if idx := bytes.Index(body, []byte("<head>")); idx != -1 {
+		pos := idx + len("<head>")
+		return append(body[:pos], append(script, body[pos:]...)...)
+	}
+	if idx := bytes.Index(body, []byte("<head ")); idx != -1 {
+		endIdx := bytes.Index(body[idx:], []byte(">"))
+		if endIdx != -1 {
+			pos := idx + endIdx + 1
+			return append(body[:pos], append(script, body[pos:]...)...)
+		}
+	}
+	// 回退到 </head> 前
 	if idx := bytes.Index(body, []byte("</head>")); idx != -1 {
 		return append(body[:idx], append(script, body[idx:]...)...)
 	}
