@@ -4,10 +4,10 @@ services:
     container_name: mirror-proxy
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "18800:8080"
     volumes:
-      - /opt/mirror-proxy/config:/app/config
-      - /opt/mirror-proxy/cache:/app/cache
+      - ./config:/app/config
+      - ./cache:/app/cache
     environment:
       - TZ=Asia/Shanghai
       - CONFIG_PATH=/app/config/config.json

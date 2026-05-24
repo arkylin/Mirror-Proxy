@@ -40,10 +40,10 @@ LISTEN_ADDR=:9090 ./mirror-proxy
 **1. 创建 `docker-compose.yml`**
 
 ```bash
-# 创建数据目录
-mkdir -p /opt/mirror-proxy/config /opt/mirror-proxy/cache
+# 1. 创建工作目录
+mkdir -p /opt/Mirror-Proxy && cd /opt/Mirror-Proxy
 
-# 创建 docker-compose.yml
+# 2. 创建 docker-compose.yml
 cat > docker-compose.yml << 'EOF'
 services:
   mirror-proxy:
@@ -51,23 +51,20 @@ services:
     container_name: mirror-proxy
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "18800:8080"
     volumes:
-      - /opt/mirror-proxy/config:/app/config
-      - /opt/mirror-proxy/cache:/app/cache
+      - ./config:/app/config
+      - ./cache:/app/cache
     environment:
       - TZ=Asia/Shanghai
       - CONFIG_PATH=/app/config/config.json
 EOF
-```
 
-**2. 启动服务**
-
-```bash
+# 3. 启动服务
 docker-compose up -d
 ```
 
-首次启动会自动在 `/opt/mirror-proxy/config/` 目录下创建 `config.json`（默认账号 `admin` / `admin123`），无需手动提前创建配置文件。
+首次启动会自动在 `./config/` 目录下创建 `config.json`（默认账号 `admin` / `admin123`），无需手动提前创建配置文件。
 
 **3. 常用命令**
 
@@ -90,7 +87,7 @@ docker-compose pull && docker-compose up -d
 
 **4. 管理后台**
 
-访问 `http://<服务器IP>:8080/admin/`，默认账号：
+访问 `http://<服务器IP>:18800/admin/`，默认账号：
 - 用户名：`admin`
 - 密码：`admin123`
 
@@ -101,15 +98,16 @@ docker-compose pull && docker-compose up -d
 ### 使用 Docker 直接运行
 
 ```bash
-# 创建数据目录
-mkdir -p /opt/mirror-proxy/config /opt/mirror-proxy/cache
+# 创建工作目录并进入
+mkdir -p /opt/Mirror-Proxy && cd /opt/Mirror-Proxy
+mkdir -p config cache
 
 # 拉取并运行（首次运行自动生成 config.json）
 docker run -d \
   --name mirror-proxy \
-  -p 8080:8080 \
-  -v /opt/mirror-proxy/config:/app/config \
-  -v /opt/mirror-proxy/cache:/app/cache \
+  -p 18800:8080 \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/cache:/app/cache \
   -e CONFIG_PATH=/app/config/config.json \
   --restart unless-stopped \
   ghcr.io/arkylin/mirror-proxy:latest
