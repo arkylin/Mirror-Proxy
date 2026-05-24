@@ -178,7 +178,7 @@ func buildHandler(cfg *config.Config) (*admin.Handler, http.Handler) {
 			}
 			ghcrProxy.ServeHTTP(w, r)
 		case "github":
-			middleware.StripPrefix("/github", githubProxy).ServeHTTP(w, r)
+			githubProxy.ServeHTTP(w, r)
 		default:
 			dockerProxy.ServeHTTP(w, r)
 		}
