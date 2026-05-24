@@ -63,7 +63,7 @@ func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.cfg.SetLink(link)
-	if err := h.cfg.Save("config.json"); err != nil {
+	if err := h.cfg.Save(config.GetConfigFilePath()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -112,7 +112,7 @@ func (h *Handler) UpdateLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.cfg.SetLink(link)
-	if err := h.cfg.Save("config.json"); err != nil {
+	if err := h.cfg.Save(config.GetConfigFilePath()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -132,7 +132,7 @@ func (h *Handler) DeleteLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.cfg.DeleteLink(id)
-	if err := h.cfg.Save("config.json"); err != nil {
+	if err := h.cfg.Save(config.GetConfigFilePath()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -152,7 +152,7 @@ func (h *Handler) RegenerateToken(w http.ResponseWriter, r *http.Request) {
 
 	link.Token = auth.GenerateToken()
 	h.cfg.SetLink(link)
-	if err := h.cfg.Save("config.json"); err != nil {
+	if err := h.cfg.Save(config.GetConfigFilePath()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -221,7 +221,7 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		h.cfg.AdminPass = req.AdminPass
 	}
 
-	if err := h.cfg.Save("config.json"); err != nil {
+	if err := h.cfg.Save(config.GetConfigFilePath()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

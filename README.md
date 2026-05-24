@@ -49,10 +49,11 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./config.json:/app/config.json
+      - ./config:/app/config
       - ./cache:/app/cache
     environment:
       - TZ=Asia/Shanghai
+      - CONFIG_PATH=/app/config/config.json
 EOF
 ```
 
@@ -62,7 +63,7 @@ EOF
 docker-compose up -d
 ```
 
-首次启动会自动创建 `config.json`（默认账号 `admin` / `admin123`）。
+首次启动会自动在 `./config/` 目录下创建 `config.json`（默认账号 `admin` / `admin123`），无需手动提前创建配置文件。
 
 **3. 常用命令**
 
@@ -96,12 +97,16 @@ docker-compose pull && docker-compose up -d
 ### 使用 Docker 直接运行
 
 ```bash
+# 创建配置目录
+mkdir -p config cache
+
 # 拉取并运行（首次运行自动生成 config.json）
 docker run -d \
   --name mirror-proxy \
   -p 8080:8080 \
-  -v $(pwd)/config.json:/app/config.json \
+  -v $(pwd)/config:/app/config \
   -v $(pwd)/cache:/app/cache \
+  -e CONFIG_PATH=/app/config/config.json \
   --restart unless-stopped \
   ghcr.io/arkylin/mirror-proxy:latest
 ```

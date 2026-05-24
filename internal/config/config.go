@@ -3,8 +3,19 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 )
+
+var configFilePath string = "config.json"
+
+func SetConfigFilePath(path string) {
+	configFilePath = path
+}
+
+func GetConfigFilePath() string {
+	return configFilePath
+}
 
 type Config struct {
 	ListenAddr       string            `json:"listen_addr"`
@@ -38,6 +49,7 @@ var (
 )
 
 func Load(path string) (*Config, error) {
+	configFilePath = path
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -73,6 +85,14 @@ func defaultConfig() *Config {
 func (c *Config) Save(path string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err

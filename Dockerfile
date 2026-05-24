@@ -16,7 +16,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /app
 
 # 创建必要目录
-RUN mkdir -p web/static cache
+RUN mkdir -p web/static cache config
 
 # 复制编译后的二进制文件和静态资源
 COPY --from=builder /app/mirror-proxy .
