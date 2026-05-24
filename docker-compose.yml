@@ -6,8 +6,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./config:/app/config
-      - ./cache:/app/cache
+      - /opt/mirror-proxy/config:/app/config
+      - /opt/mirror-proxy/cache:/app/cache
     environment:
       - TZ=Asia/Shanghai
       - CONFIG_PATH=/app/config/config.json

@@ -40,6 +40,10 @@ LISTEN_ADDR=:9090 ./mirror-proxy
 **1. 创建 `docker-compose.yml`**
 
 ```bash
+# 创建数据目录
+mkdir -p /opt/mirror-proxy/config /opt/mirror-proxy/cache
+
+# 创建 docker-compose.yml
 cat > docker-compose.yml << 'EOF'
 services:
   mirror-proxy:
@@ -49,8 +53,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./config:/app/config
-      - ./cache:/app/cache
+      - /opt/mirror-proxy/config:/app/config
+      - /opt/mirror-proxy/cache:/app/cache
     environment:
       - TZ=Asia/Shanghai
       - CONFIG_PATH=/app/config/config.json
@@ -63,7 +67,7 @@ EOF
 docker-compose up -d
 ```
 
-首次启动会自动在 `./config/` 目录下创建 `config.json`（默认账号 `admin` / `admin123`），无需手动提前创建配置文件。
+首次启动会自动在 `/opt/mirror-proxy/config/` 目录下创建 `config.json`（默认账号 `admin` / `admin123`），无需手动提前创建配置文件。
 
 **3. 常用命令**
 
@@ -97,15 +101,15 @@ docker-compose pull && docker-compose up -d
 ### 使用 Docker 直接运行
 
 ```bash
-# 创建配置目录
-mkdir -p config cache
+# 创建数据目录
+mkdir -p /opt/mirror-proxy/config /opt/mirror-proxy/cache
 
 # 拉取并运行（首次运行自动生成 config.json）
 docker run -d \
   --name mirror-proxy \
   -p 8080:8080 \
-  -v $(pwd)/config:/app/config \
-  -v $(pwd)/cache:/app/cache \
+  -v /opt/mirror-proxy/config:/app/config \
+  -v /opt/mirror-proxy/cache:/app/cache \
   -e CONFIG_PATH=/app/config/config.json \
   --restart unless-stopped \
   ghcr.io/arkylin/mirror-proxy:latest
