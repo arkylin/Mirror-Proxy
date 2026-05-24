@@ -109,7 +109,8 @@
             try {
                 const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
                 if (res.ok) {
-                    window.location.href = '../';
+                    const adminRoot = window.location.pathname.replace(/\/login\/?$/, '/');
+                    window.location.href = adminRoot;
                 }
             } catch (e) {}
         }
@@ -138,7 +139,8 @@
                 });
 
                 if (res.ok) {
-                    window.location.href = '../';
+                    const adminRoot = window.location.pathname.replace(/\/login\/?$/, '/');
+                    window.location.href = adminRoot;
                 } else {
                     const data = await res.json().catch(() => ({}));
                     errorEl.textContent = data.error || '用户名或密码错误';

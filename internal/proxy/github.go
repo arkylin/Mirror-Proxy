@@ -104,11 +104,21 @@ func rewriteURL(u string, prefix string) string {
 	return u
 }
 
-// injectTokenPrefixScript 在 HTML 中注入 JS 脚本，拦截链接点击自动补全 token 前缀
+// injectTokenPrefixScript 在 HTML 中注入 JS 脚本，重写所有链接使其包含 token 前缀
 func injectTokenPrefixScript(body []byte, prefix string) []byte {
 	script := []byte(`<script>` +
 		`(function(){` +
 		`var p='` + prefix + `';` +
+		`function rw(v){return v&&v.startsWith('/')&&!v.startsWith(p+'/')&&v!==p?p+v:v};` +
+		`function fix(root){` +
+		`root.querySelectorAll&&root.querySelectorAll('a[href]').forEach(function(a){a.href=rw(a.getAttribute('href'))});` +
+		`root.querySelectorAll&&root.querySelectorAll('form[action]').forEach(function(f){f.action=rw(f.getAttribute('action'))});` +
+		`root.querySelectorAll&&root.querySelectorAll('[src]').forEach(function(el){var s=el.getAttribute('src');if(s&&s.startsWith('/')&&!s.startsWith(p+'/'))el.setAttribute('src',p+s)});` +
+		`}` +
+		`fix(document);` +
+		`if(window.MutationObserver){` +
+		`new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){if(n.nodeType===1)fix(n)})})}).observe(document.documentElement||document.body,{childList:true,subtree:true});` +
+		`}` +
 		`document.addEventListener('click',function(e){` +
 		`var a=e.target.closest('a');` +
 		`if(!a)return;` +
@@ -135,14 +145,13 @@ func injectTokenPrefixScript(body []byte, prefix string) []byte {
 	}
 	// 或者在 <body> 标签后插入
 	if idx := bytes.Index(body, []byte("<body")); idx != -1 {
-		// 找到 <body> 标签的结束位置
 		endIdx := bytes.Index(body[idx:], []byte(">"))
 		if endIdx != -1 {
 			pos := idx + endIdx + 1
 			return append(body[:pos], append(script, body[pos:]...)...)
 		}
 	}
-	//  fallback：在文档开头插入
+	// fallback：在文档开头插入
 	return append(script, body...)
 }
 
