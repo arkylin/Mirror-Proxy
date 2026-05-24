@@ -53,7 +53,7 @@ func DynamicProxy(targetURL string) http.Handler {
 				resp.Header.Set("Location", rewriteURL(loc, tokenPrefix))
 			}
 
-			// 对 HTML 响应注入 JS 脚本，重写链接
+			// 对 HTML 响应做服务端 URL 重写 + 注入 JS 兜底
 			contentType := resp.Header.Get("Content-Type")
 			if strings.Contains(contentType, "text/html") && resp.Body != nil {
 				body, err := io.ReadAll(resp.Body)
@@ -62,7 +62,11 @@ func DynamicProxy(targetURL string) http.Handler {
 				}
 				resp.Body.Close()
 
+				// 1. 服务端重写所有已知 URL 属性（应对 CSP 禁止内联脚本的情况）
+				body = rewriteHTMLBody(body, tokenPrefix)
+				// 2. 注入 JS 处理动态添加的内容（无 CSP 时生效）
 				body = injectTokenPrefixScript(body, tokenPrefix)
+
 				resp.Body = io.NopCloser(bytes.NewReader(body))
 				resp.ContentLength = int64(len(body))
 				resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
