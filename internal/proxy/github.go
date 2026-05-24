@@ -141,18 +141,39 @@ func NewGitHubProxy() http.Handler {
 	return p
 }
 
+var githubHosts = []string{
+	"github.com",
+	"www.github.com",
+	"raw.githubusercontent.com",
+	"api.github.com",
+	"codeload.github.com",
+	"objects.githubusercontent.com",
+	"user-images.githubusercontent.com",
+	"camo.githubusercontent.com",
+	"avatars.githubusercontent.com",
+}
+
+func isGitHubURL(u string) bool {
+	for _, h := range githubHosts {
+		if strings.HasPrefix(u, "https://"+h+"/") || strings.HasPrefix(u, "http://"+h+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // rewriteURL 重写 URL，在前面加上 token 前缀
 func rewriteURL(u string, prefix string) string {
 	if u == "" || prefix == "" {
 		return u
 	}
-	// 已经是完整 URL（带 scheme）
-	if strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
-		return u
-	}
 	// 已经是带前缀的路径
 	if strings.HasPrefix(u, prefix+"/") || u == prefix {
 		return u
+	}
+	// GitHub 相关的绝对 URL，添加前缀代理
+	if isGitHubURL(u) {
+		return prefix + "/" + u
 	}
 	// 以 / 开头的绝对路径，加上前缀
 	if strings.HasPrefix(u, "/") {
@@ -170,7 +191,14 @@ func injectTokenPrefixScript(body []byte, prefix string) []byte {
 		`(function(){` +
 		`var p='` + prefix + `';` +
 		`if(typeof crypto!=='undefined'&&!crypto.randomUUID){crypto.randomUUID=function(){return'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16);});};}` +
-		`function rw(v){return v&&v.startsWith('/')&&!v.startsWith(p+'/')&&v!==p?p+v:v};` +
+		`var gh=['https://github.com/','https://www.github.com/','https://raw.githubusercontent.com/','https://api.github.com/','https://codeload.github.com/','https://objects.githubusercontent.com/','https://user-images.githubusercontent.com/','https://camo.githubusercontent.com/','https://avatars.githubusercontent.com/','http://github.com/','http://www.github.com/','http://raw.githubusercontent.com/','http://api.github.com/','http://codeload.github.com/','http://objects.githubusercontent.com/','http://user-images.githubusercontent.com/','http://camo.githubusercontent.com/','http://avatars.githubusercontent.com/','wss://github.com/','wss://raw.githubusercontent.com/','wss://api.github.com/'];` +
+		`function rw(v){` +
+		`if(!v||v===p)return v;` +
+		`if(v.startsWith(p+'/'))return v;` +
+		`for(var i=0;i<gh.length;i++){if(v.startsWith(gh[i]))return p+'/'+v;}` +
+		`if(v.startsWith('/'))return p+v;` +
+		`return v;` +
+		`}` +
 		`function rfw(u){` +
 		`if(typeof u!=='string'){` +
 		`if(u&&typeof u==='object'){` +
@@ -180,8 +208,7 @@ func injectTokenPrefixScript(body []byte, prefix string) []byte {
 		`return u;` +
 		`}` +
 		`if(u.startsWith(p+'/')||u===p)return u;` +
-		`var a=['https://github.com/','https://raw.githubusercontent.com/','https://api.github.com/','wss://github.com/','wss://raw.githubusercontent.com/','wss://api.github.com/'];` +
-		`for(var i=0;i<a.length;i++){if(u.startsWith(a[i]))return p+'/'+u;}` +
+		`for(var i=0;i<gh.length;i++){if(u.startsWith(gh[i]))return p+'/'+u;}` +
 		`if(u.startsWith('/'))return p+u;` +
 		`return u;` +
 		`}` +
@@ -192,7 +219,7 @@ func injectTokenPrefixScript(body []byte, prefix string) []byte {
 		`function fix(root){` +
 		`root.querySelectorAll&&root.querySelectorAll('a[href]').forEach(function(a){a.href=rw(a.getAttribute('href'))});` +
 		`root.querySelectorAll&&root.querySelectorAll('form[action]').forEach(function(f){f.action=rw(f.getAttribute('action'))});` +
-		`root.querySelectorAll&&root.querySelectorAll('[src]').forEach(function(el){var s=el.getAttribute('src');if(s&&s.startsWith('/')&&!s.startsWith(p+'/'))el.setAttribute('src',p+s)});` +
+		`root.querySelectorAll&&root.querySelectorAll('[src]').forEach(function(el){var s=el.getAttribute('src');if(s){var rs=rw(s);if(rs!==s)el.setAttribute('src',rs)}});` +
 		`}` +
 		`fix(document);` +
 		`if(window.MutationObserver){` +
@@ -202,17 +229,19 @@ func injectTokenPrefixScript(body []byte, prefix string) []byte {
 		`var a=e.target.closest('a');` +
 		`if(!a)return;` +
 		`var h=a.getAttribute('href');` +
-		`if(h&&h.startsWith('/')&&!h.startsWith(p+'/')&&h!==p){` +
+		`var rh=rw(h);` +
+		`if(rh!==h){` +
 		`e.preventDefault();` +
-		`location.href=p+h;` +
+		`location.href=rh;` +
 		`}` +
 		`},true);` +
 		`document.addEventListener('submit',function(e){` +
 		`var f=e.target.closest('form');` +
 		`if(!f)return;` +
 		`var h=f.getAttribute('action');` +
-		`if(h&&h.startsWith('/')&&!h.startsWith(p+'/')&&h!==p){` +
-		`f.setAttribute('action',p+h);` +
+		`var rh=rw(h);` +
+		`if(rh!==h){` +
+		`f.setAttribute('action',rh);` +
 		`}` +
 		`},true);` +
 		`})();` +
