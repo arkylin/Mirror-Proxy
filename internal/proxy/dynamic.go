@@ -13,6 +13,20 @@ import (
 	"mirror-proxy/internal/auth"
 )
 
+// followRedirectTransport 包装 http.RoundTripper，自动跟随 3xx 重定向。
+// 用于 DynamicProxy，避免浏览器在 HTTP 代理上看到 HTTPS→HTTP 的 302 降级警告。
+type followRedirectTransport struct {
+	base http.RoundTripper
+}
+
+func (t *followRedirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	client := &http.Client{
+		Transport:     t.base,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error { return nil },
+	}
+	return client.Do(req)
+}
+
 // DynamicProxy 创建指向任意目标 URL 的反向代理
 func DynamicProxy(targetURL string) http.Handler {
 	target, err := url.Parse(targetURL)
@@ -92,11 +106,13 @@ func DynamicProxy(targetURL string) http.Handler {
 			w.WriteHeader(http.StatusBadGateway)
 			fmt.Fprintf(w, "Proxy error: %s", err.Error())
 		},
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 20,
-			IdleConnTimeout:     90 * time.Second,
-			TLSHandshakeTimeout: 10 * time.Second,
+		Transport: &followRedirectTransport{
+			base: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 20,
+				IdleConnTimeout:     90 * time.Second,
+				TLSHandshakeTimeout: 10 * time.Second,
+			},
 		},
 	}
 
