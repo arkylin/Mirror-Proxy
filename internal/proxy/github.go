@@ -157,11 +157,15 @@ func rewriteURL(u string, prefix string) string {
 }
 
 // injectTokenPrefixScript 在 HTML 中注入 JS 脚本，重写所有链接使其包含 token 前缀
+// 同时拦截 fetch / XMLHttpRequest，将直接访问 github.com 的请求也转回代理。
 func injectTokenPrefixScript(body []byte, prefix string) []byte {
 	script := []byte(`<script>` +
 		`(function(){` +
 		`var p='` + prefix + `';` +
 		`function rw(v){return v&&v.startsWith('/')&&!v.startsWith(p+'/')&&v!==p?p+v:v};` +
+		`function rfw(u){if(typeof u!=='string')return u;if(u.startsWith(p+'/')||u===p)return u;var a=['https://github.com/','https://raw.githubusercontent.com/','https://api.github.com/'];for(var i=0;i<a.length;i++){if(u.startsWith(a[i]))return p+'/'+u;}if(u.startsWith('/'))return p+u;return u;}` +
+		`var of=window.fetch;window.fetch=function(u,o){if(typeof u==='string'){u=rfw(u);}return of.call(this,u,o);};` +
+		`var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(){var a=Array.prototype.slice.call(arguments);if(a.length>1){a[1]=rfw(a[1]);}return oo.apply(this,a);};` +
 		`function fix(root){` +
 		`root.querySelectorAll&&root.querySelectorAll('a[href]').forEach(function(a){a.href=rw(a.getAttribute('href'))});` +
 		`root.querySelectorAll&&root.querySelectorAll('form[action]').forEach(function(f){f.action=rw(f.getAttribute('action'))});` +
