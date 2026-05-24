@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"regexp"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -93,37 +92,110 @@ func isRefreshMeta(n *html.Node) bool {
 	return false
 }
 
-var refreshURLRe = regexp.MustCompile(`(?i)(url\s*=\s*)(["']?)(/[^"'>\s;]*)\2`)
-
+// rewriteRefreshContent rewrites URLs inside meta refresh content,
+// e.g. "0;url=/path" -> "0;url={prefix}/path"
 func rewriteRefreshContent(content, prefix string) string {
-	return refreshURLRe.ReplaceAllStringFunc(content, func(m string) string {
-		matches := refreshURLRe.FindStringSubmatch(m)
-		if len(matches) < 5 {
-			return m
+	for _, pat := range []string{"url=\"", "url='", "url="} {
+		idx := strings.Index(content, pat)
+		if idx == -1 {
+			continue
 		}
-		urlPart := matches[3]
+		start := idx + len(pat)
+		quote := ""
+		if pat == "url=\"" {
+			quote = "\""
+		} else if pat == "url='" {
+			quote = "'"
+		}
+		end := len(content)
+		if quote != "" {
+			if q := strings.Index(content[start:], quote); q != -1 {
+				end = start + q
+			}
+		} else {
+			for i := start; i < len(content); i++ {
+				if content[i] == ' ' || content[i] == ';' || content[i] == '"' || content[i] == '\'' {
+					end = i
+					break
+				}
+			}
+		}
+		urlPart := content[start:end]
 		rewritten := rewriteURL(urlPart, prefix)
-		if rewritten == urlPart {
-			return m
+		if rewritten != urlPart {
+			return content[:start] + rewritten + content[end:]
 		}
-		return matches[1] + matches[2] + rewritten + matches[2]
-	})
+	}
+	return content
 }
 
-// cssURLRe matches url(/path), url("/path"), url('/path').
-var cssURLRe = regexp.MustCompile(`(?i)(url\s*\(\s*)(["']?)(/[^"')\s]*)\2(\s*\))`)
-
+// rewriteCSSURLs rewrites url(/path) inside CSS text.
 func rewriteCSSURLs(css, prefix string) string {
-	return cssURLRe.ReplaceAllStringFunc(css, func(m string) string {
-		matches := cssURLRe.FindStringSubmatch(m)
-		if len(matches) < 5 {
-			return m
+	var result strings.Builder
+	i := 0
+	for i < len(css) {
+		idx := strings.Index(css[i:], "url(")
+		if idx == -1 {
+			result.WriteString(css[i:])
+			break
 		}
-		urlPart := matches[3]
+		idx += i
+		result.WriteString(css[i:idx])
+
+		start := idx + 4 // after "url("
+		// skip whitespace
+		for start < len(css) && (css[start] == ' ' || css[start] == '\t' || css[start] == '\n') {
+			start++
+		}
+		if start >= len(css) {
+			result.WriteString(css[idx:])
+			break
+		}
+
+		quote := ""
+		if css[start] == '"' || css[start] == '\'' {
+			quote = string(css[start])
+			start++
+		}
+
+		urlStart := start
+		urlEnd := len(css)
+		if quote != "" {
+			if q := strings.Index(css[start:], quote); q != -1 {
+				urlEnd = start + q
+			}
+		} else {
+			for j := start; j < len(css); j++ {
+				if css[j] == ')' || css[j] == ' ' || css[j] == '\t' || css[j] == '\n' {
+					urlEnd = j
+					break
+				}
+			}
+		}
+
+		urlPart := css[urlStart:urlEnd]
 		rewritten := rewriteURL(urlPart, prefix)
-		if rewritten == urlPart {
-			return m
+
+		result.WriteString("url(")
+		if quote != "" {
+			result.WriteString(quote)
 		}
-		return matches[1] + matches[2] + rewritten + matches[2] + matches[4]
-	})
+		result.WriteString(rewritten)
+		if quote != "" {
+			result.WriteString(quote)
+		}
+
+		// find closing ')'
+		i = urlEnd
+		if quote != "" {
+			i++ // skip closing quote
+		}
+		for i < len(css) && (css[i] == ' ' || css[i] == '\t' || css[i] == '\n') {
+			i++
+		}
+		if i < len(css) && css[i] == ')' {
+			i++
+		}
+	}
+	return result.String()
 }
