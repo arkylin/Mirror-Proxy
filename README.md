@@ -72,7 +72,7 @@ docker-compose down
 
 ```bash
 # 拉取最新镜像
-docker pull ghcr.io/${GITHUB_USER}/mirror-proxy:latest
+docker pull ghcr.io/arkylin/mirror-proxy:latest
 
 # 运行
 docker run -d \
@@ -81,10 +81,8 @@ docker run -d \
   -v $(pwd)/config.json:/app/config.json \
   -v $(pwd)/cache:/app/cache \
   --restart unless-stopped \
-  ghcr.io/${GITHUB_USER}/mirror-proxy:latest
+  ghcr.io/arkylin/mirror-proxy:latest
 ```
-
-> 将 `${GITHUB_USER}` 替换为你的 GitHub 用户名或组织名。
 
 ## 使用方式
 

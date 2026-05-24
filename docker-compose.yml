@@ -1,5 +1,7 @@
 services:
   mirror-proxy:
+    # 使用 GHCR 预构建镜像（推荐）
+    # image: ghcr.io/arkylin/mirror-proxy:latest
     build: .
     container_name: mirror-proxy
     restart: unless-stopped
